@@ -12,6 +12,7 @@ import cv2
 import numpy as np
 import torch
 import torchvision
+import torch.nn.functional as F
 
 logger = logging.getLogger(__name__)
 
@@ -481,9 +482,22 @@ def driving_area_mask(seg=None):
     da_seg_mask = da_seg_mask.int().squeeze().cpu().numpy()
     return da_seg_mask
 
-def lane_line_mask(ll=None):
+def lane_line_mask(ll=None, threshold=0.5):
+    """
+    원본:
+      ll_predict = ll[:, :, 12:372, :]
+      ll_seg_mask = F.interpolate(ll_predict, scale_factor=2, mode='bilinear')
+      ll_seg_mask = torch.round(ll_seg_mask).squeeze(1)
+      ll_seg_mask = ll_seg_mask.int().squeeze().cpu().numpy()
+      return ll_seg_mask
+
+    수정:
+      - threshold 인자로 받고,
+      - torch.round 대신 (x > threshold) 사용
+    """
     ll_predict = ll[:, :, 12:372, :]
-    ll_seg_mask = torch.nn.functional.interpolate(ll_predict, scale_factor=2, mode='bilinear')
-    ll_seg_mask = torch.round(ll_seg_mask).squeeze(1)
-    ll_seg_mask = ll_seg_mask.int().squeeze().cpu().numpy()
+    ll_seg_mask = F.interpolate(ll_predict, scale_factor=2, mode='bilinear')  # shape: (N,1,H,W), float in [0,1]
+    # 보수적인 threshold 적용 (기본 0.5)
+    ll_seg_mask = (ll_seg_mask > threshold).int().squeeze(1)
+    ll_seg_mask = ll_seg_mask.squeeze().cpu().numpy()
     return ll_seg_mask

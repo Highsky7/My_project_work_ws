@@ -47,6 +47,10 @@ def make_parser():
     parser.add_argument('--device', default='0',
                         help='cuda device, i.e. 0 or cpu')
 
+    # (수정) 보수적 세그멘테이션을 위한 Threshold (float in [0.0, 1.0])
+    parser.add_argument('--lane-thres', type=float, default=0.8,
+                        help='Threshold for lane segmentation mask (0.0 ~ 1.0). Higher => more conservative')
+
     # Detection용이지만, 우선은 남겨둠
     parser.add_argument('--conf-thres', type=float, default=0.3, help='(unused)')
     parser.add_argument('--iou-thres', type=float, default=0.45, help='(unused)')
@@ -115,6 +119,7 @@ def detect_and_publish(opt, pub_mask):
     bridge = CvBridge()
 
     source, weights = opt.source, opt.weights
+    lane_thr = opt.lane_thres  # float in [0.0, 1.0]
     imgsz = opt.img_size
 
     # --nosave: true -> 저장 함(이중부정)
@@ -165,21 +170,20 @@ def detect_and_publish(opt, pub_mask):
     # 아래 src/dst 좌표는 실험 환경에 맞춰 조정해야 합니다.
     # 예: 원본 이미지(640x480 가정)에서 사다리꼴 영역 4점
     # 주의: im0s.shape 등 실제 높이/너비와 맞추세요!
+    # BEV 변환용 파라미터 (src_points는 카메라 영상에서 “BEV로 만들고 싶은 사다리꼴 영역”, dst_points는 “위에서 내려다본 결과가 차지할 직사각형(크기=bev_size)”.
     src_points = np.float32([
-        [200,  300],   # 왼쪽 위
-        [440,  300],   # 오른쪽 위
-        [ 50,  479],   # 왼쪽 아래
-        [590,  479]    # 오른쪽 아래
+        [400, 300],  # 왼쪽 위
+        [880, 300],  # 오른쪽 위
+        [100,  720],  # 왼쪽 아래
+        [1180, 720]   # 오른쪽 아래
     ])
-    # 목표 BEV 해상도(400x600) 기준, 매핑할 4점
-    # (왼위, 오른위, 왼아래, 오른아래) 순서
     dst_points = np.float32([
-        [100,   0],    # 왼쪽 위
-        [300,   0],    # 오른쪽 위
-        [100,  599],   # 왼쪽 아래
-        [300,  599]    # 오른쪽 아래
+        [200,   0],  # 왼쪽 위
+        [1080,   0],  # 오른쪽 위
+        [200, 1200],  # 왼쪽 아래
+        [1080, 1200]   # 오른쪽 아래
     ])
-    bev_size = (400, 600)  # (width, height)
+    bev_size = (800, 1200)  # (width, height)
 
     # 변환 행렬
     M = cv2.getPerspectiveTransform(src_points, dst_points)
@@ -208,9 +212,12 @@ def detect_and_publish(opt, pub_mask):
             [_, _], seg, ll = model(img_t)
         t2 = time_synchronized()
 
-        # Lane Segmentation -> 이진화
-        ll_seg_mask = lane_line_mask(ll)
-        binary_mask = (ll_seg_mask > 0).astype(np.uint8) * 255
+        # (1) Lane Segmentation => (2) Threshold
+        #    lane_line_mask(ll, threshold=lane_thr) 내부에서 (x>threshold).int()
+        ll_seg = lane_line_mask(ll, threshold=lane_thr)
+
+        # ll_seg는 이미 0/1 ndarray. => 255 스케일로 변환
+        binary_mask = (ll_seg * 255).astype(np.uint8)
 
         # 2) Thinning 모폴로지 연산(두꺼운 선 -> 얇은 선)
         # 예: 단순 erode, 반복 횟수는 필요에 따라 조정(숫자가 클수록 선 얇아짐)

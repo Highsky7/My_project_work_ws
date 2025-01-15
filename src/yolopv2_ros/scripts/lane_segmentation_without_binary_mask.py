@@ -14,12 +14,12 @@ from pathlib import Path
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge, CvBridgeError
 
-# YOLOPv2 유틸
+# YOLOPv2 유틸 (utils.py)
 from utils.utils import (
     time_synchronized,
     select_device,
     increment_path,
-    lane_line_mask,
+    lane_line_mask,   # 수정된 함수( threshold 파라미터 지원 )
     AverageMeter,
     LoadCamera,
     LoadImages
@@ -48,11 +48,15 @@ def make_parser():
     parser.add_argument('--device', default='0',
                         help='cuda device, i.e. 0 or cpu')
 
-    # Detection용이지만, 우선 남겨둠
+    # (수정) 보수적 세그멘테이션을 위한 Threshold (float in [0.0, 1.0])
+    parser.add_argument('--lane-thres', type=float, default=0.9,
+                        help='Threshold for lane segmentation mask (0.0 ~ 1.0). Higher => more conservative')
+
+    # Detection용
     parser.add_argument('--conf-thres', type=float, default=0.3, help='(unused)')
     parser.add_argument('--iou-thres', type=float, default=0.45, help='(unused)')
 
-    # --nosave: True => 저장 안 함, False => 저장
+    # --nosave: True => 저장O, False => 저장X
     parser.add_argument('--nosave', action='store_true',
                         help='if true => do NOT save images/videos, else => save')
 
@@ -89,7 +93,7 @@ def make_webcam_video(record_frames, save_dir: Path, stem_name: str, real_durati
     out = cv2.VideoWriter(save_path,
                           cv2.VideoWriter_fourcc(*'mp4v'),
                           real_fps,
-                          (w, h))  # (width, height)
+                          (w, h))
 
     for f in record_frames:
         out.write(f)
@@ -102,8 +106,8 @@ def detect_and_publish(opt, pub_img):
     """
     1) Lane Line 세그멘테이션
     2) Thinning
-    3) (A) 오버레이(컬러)
-    4) (B) BEV 변환
+    3) 오버레이(컬러)
+    4) BEV 변환
     5) ROS 퍼블리시, 실시간 표시, 저장
     """
 
@@ -117,6 +121,7 @@ def detect_and_publish(opt, pub_img):
     bridge = CvBridge()
 
     source, weights = opt.source, opt.weights
+    lane_thr = opt.lane_thres  # float in [0.0, 1.0]
     imgsz = opt.img_size
 
     # --nosave: True => 저장 안 함 / False => 저장
@@ -127,7 +132,6 @@ def detect_and_publish(opt, pub_img):
     save_dir.mkdir(parents=True, exist_ok=True)
 
     inf_time = AverageMeter()
-
     vid_path = None
     vid_writer = None
 
@@ -157,32 +161,27 @@ def detect_and_publish(opt, pub_img):
         model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))
 
     t0 = time.time()
-
-    # (선택) 프레임 스킵
     frame_skip = opt.frame_skip
     frame_counter = 0
 
-    # BEV 변환용 파라미터 (예시값)
+    # (예시) BEV 변환 파라미터
     src_points = np.float32([
-        [200, 300],  # 왼쪽 위
-        [440, 300],  # 오른쪽 위
-        [50,  479],  # 왼쪽 아래
-        [590, 479]   # 오른쪽 아래
+        [400, 300],
+        [880, 300],
+        [100, 720],
+        [1180, 720]
     ])
     dst_points = np.float32([
-        [100,   0],  # 왼쪽 위
-        [300,   0],  # 오른쪽 위
-        [100, 599],  # 왼쪽 아래
-        [300, 599]   # 오른쪽 아래
+        [200,   0],
+        [1080,   0],
+        [200, 1200],
+        [1080, 1200]
     ])
-    bev_size = (400, 600)  # (width, height)
+    bev_size = (800, 1200)
 
-    # 변환 행렬
     M = cv2.getPerspectiveTransform(src_points, dst_points)
 
-    # 메인 루프
     for path_item, img, im0s, vid_cap in dataset:
-        # (선택) 프레임 스킵
         if frame_skip > 0:
             if frame_counter % (frame_skip + 1) != 0:
                 frame_counter += 1
@@ -192,52 +191,44 @@ def detect_and_publish(opt, pub_img):
         if dataset.mode == 'stream' and start_time is None:
             start_time = time.time()
 
-        # 텐서 변환
         img_t = torch.from_numpy(img).to(device)
         img_t = img_t.half() if half else img_t.float()
         img_t /= 255.0
         if img_t.ndimension() == 3:
             img_t = img_t.unsqueeze(0)
 
-        # 추론
         t1 = time_synchronized()
         with torch.no_grad():
             [_, _], seg, ll = model(img_t)
         t2 = time_synchronized()
 
-        # Lane Segmentation (이진화)
-        ll_seg_mask = lane_line_mask(ll)
-        binary_mask = (ll_seg_mask > 0).astype(np.uint8) * 255
+        # (1) Lane Segmentation => (2) Threshold
+        #    lane_line_mask(ll, threshold=lane_thr) 내부에서 (x>threshold).int()
+        ll_seg = lane_line_mask(ll, threshold=lane_thr)
 
-        # Thinning (스켈레톤)
+        # ll_seg는 이미 0/1 ndarray. => 255 스케일로 변환
+        binary_mask = (ll_seg * 255).astype(np.uint8)
+
+        # (2) Thinning
         thin_mask = ximgproc.thinning(binary_mask, thinningType=ximgproc.THINNING_ZHANGSUEN)
 
-        # (A) 실제 컬러 영상 오버레이
-        #  - 방법 1: 차선 픽셀에만 특정 색(BGR) 칠하기
-        overlay_img = im0s.copy()  # BGR
+        # (3) 오버레이: thin_mask == 255 인 곳 빨갛게
+        overlay_img = im0s.copy()
+        overlay_img[thin_mask == 255] = (0, 0, 255)
 
-        # thin_mask == 255 인 영역에 빨간색(예) 적용
-        overlay_img[thin_mask == 255] = (0, 0, 255)  # 빨간색 BGR
-
-        #  - 방법 2: addWeighted(반투명)으로도 가능
-        # color_mask = np.zeros_like(im0s, dtype=np.uint8)
-        # color_mask[thin_mask == 255] = (0, 0, 255)
-        # alpha = 0.4
-        # overlay_img = cv2.addWeighted(im0s, 1 - alpha, color_mask, alpha, 0)
-
-        # (B) BEV 변환 (컬러 이미지)
+        # (4) BEV 변환
         bev_img = cv2.warpPerspective(overlay_img, M, bev_size)
 
         inf_time.update(t2 - t1, img_t.size(0))
 
-        # ROS 퍼블리시: 컬러를 보낼 때 bgr8로 인코딩
+        # (5) ROS 퍼블리시 (bgr8)
         try:
             ros_bev = bridge.cv2_to_imgmsg(bev_img, encoding="bgr8")
             pub_img.publish(ros_bev)
         except CvBridgeError as e:
             rospy.logerr("CvBridge Error: %s", str(e))
 
-        # 실시간 화면 표시
+        # 실시간 표시
         cv2.imshow('YOLOPv2 Lane + BEV (Color)', bev_img)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             rospy.loginfo("[INFO] q 키 입력 -> 종료")
@@ -247,7 +238,6 @@ def detect_and_publish(opt, pub_img):
                 dataset.cap.release()
             cv2.destroyAllWindows()
 
-            # 웹캠 녹화 -> mp4
             if dataset.mode == 'stream' and save_img:
                 end_time = time.time()
                 real_duration = end_time - start_time if start_time else 0
@@ -255,9 +245,7 @@ def detect_and_publish(opt, pub_img):
                 make_webcam_video(record_frames, save_dir, stem_name, real_duration)
             return
 
-        # ----------------------
-        # 저장 로직 (BEV 컬러 결과)
-        # ----------------------
+        # (선택) 저장
         if save_img:
             if dataset.mode == 'image':
                 save_path = str(save_dir / Path(path_item).name)
@@ -268,9 +256,7 @@ def detect_and_publish(opt, pub_img):
                 sp = Path(save_path)
                 if sp.suffix.lower() not in ['.jpg', '.jpeg', '.png', '.bmp']:
                     sp = sp.with_suffix('.jpg')
-
-                cv2.imwrite(str(sp), bev_img)  # 컬러 BEV 저장
-
+                cv2.imwrite(str(sp), bev_img)
             elif dataset.mode == 'video':
                 nonlocal_vid_path = vid_path
                 nonlocal_vid_writer = vid_writer
@@ -295,7 +281,6 @@ def detect_and_publish(opt, pub_img):
                         (wv, hv)
                     )
 
-                # BEV 컬러 영상을 mp4에 저장
                 nonlocal_vid_writer.write(bev_img)
                 vid_path = nonlocal_vid_path
                 vid_writer = nonlocal_vid_writer
@@ -303,14 +288,12 @@ def detect_and_publish(opt, pub_img):
                 # webcam stream
                 record_frames.append(bev_img.copy())
 
-    # end for
     if isinstance(vid_writer, cv2.VideoWriter):
         vid_writer.release()
     if hasattr(dataset, 'cap') and dataset.cap:
         dataset.cap.release()
     cv2.destroyAllWindows()
 
-    # 웹캠 + save_img -> mp4
     if dataset.mode == 'stream' and save_img:
         end_time = time.time()
         real_duration = end_time - start_time if start_time else 0
@@ -326,7 +309,6 @@ def ros_main():
     parser = make_parser()
     opt, _ = parser.parse_known_args()
 
-    # 새 퍼블리셔: (BEV 변환된) 컬러 영상
     pub_img = rospy.Publisher('yolopv2/lane_image_bev', Image, queue_size=1)
 
     detect_and_publish(opt, pub_img)
