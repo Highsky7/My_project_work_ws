@@ -98,7 +98,7 @@ class SegmentationMetric(object):
         IoU[np.isnan(IoU)] = 0
         mIoU = np.nanmean(IoU)
         return mIoU
-    
+
     def IntersectionOverUnion(self):
         intersection = np.diag(self.confusionMatrix)
         union = np.sum(self.confusionMatrix, axis=1) + \

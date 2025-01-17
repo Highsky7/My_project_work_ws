@@ -56,7 +56,7 @@ def make_parser():
     parser.add_argument('--iou-thres', type=float, default=0.45, help='(unused)')
 
     # --nosave: True면 저장 O, False면 저장 X
-    parser.add_argument('--nosave', action='store_false',
+    parser.add_argument('--nosave', action='store_true',
                         help='if true => do NOT save images/videos, else => save')
 
     parser.add_argument('--project', default='/home/highsky/My_project_work_ws/runs/detect',
