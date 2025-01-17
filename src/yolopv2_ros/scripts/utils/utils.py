@@ -75,7 +75,7 @@ class SegmentationMetric(object):
     def pixelAccuracy(self):
         acc = np.diag(self.confusionMatrix).sum() / self.confusionMatrix.sum()
         return acc
-        
+
     def lineAccuracy(self):
         Acc = np.diag(self.confusionMatrix) / (self.confusionMatrix.sum(axis=1) + 1e-12)
         return Acc[1]
