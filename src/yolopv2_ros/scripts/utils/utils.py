@@ -75,7 +75,7 @@ class SegmentationMetric(object):
     def pixelAccuracy(self):
         acc = np.diag(self.confusionMatrix).sum() / self.confusionMatrix.sum()
         return acc
-
+        
     def lineAccuracy(self):
         Acc = np.diag(self.confusionMatrix) / (self.confusionMatrix.sum(axis=1) + 1e-12)
         return Acc[1]
@@ -98,7 +98,7 @@ class SegmentationMetric(object):
         IoU[np.isnan(IoU)] = 0
         mIoU = np.nanmean(IoU)
         return mIoU
-
+    
     def IntersectionOverUnion(self):
         intersection = np.diag(self.confusionMatrix)
         union = np.sum(self.confusionMatrix, axis=1) + \
@@ -295,12 +295,6 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45,
         i = torchvision.ops.nms(boxes, scores, iou_thres)
         if i.shape[0] > max_det:
             i = i[:max_det]
-        if merge and (1 < n < 3E3):
-            iou = box_iou(boxes[i], boxes) > iou_thres
-            weights = iou * scores[None]
-            x[i, :4] = torch.mm(weights, x[:, :4]).float() / weights.sum(1, keepdim=True)
-            if redundant:
-                i = i[iou.sum(1) > 1]
         output[xi] = x[i]
         if (time.time() - t) > time_limit:
             print(f'WARNING: NMS time limit {time_limit}s exceeded')
@@ -324,18 +318,16 @@ class LoadCamera:
         self.stride = stride
 
         # 1) 정수가 아니라 '/dev/video2'처럼 문자열일 경우도 대응
-        #    혹은 그대로 int(source)만 사용하되, 두 번째 인자로 CAP_V4L2 지정
         try:
             cam_index = int(self.source)
             self.cap = cv2.VideoCapture(cam_index, cv2.CAP_V4L2)
         except ValueError:
-            # 만약 source가 '/dev/video2' 형태라면
             self.cap = cv2.VideoCapture(self.source, cv2.CAP_V4L2)
 
         if not self.cap.isOpened():
             raise Exception(f"카메라를 열 수 없습니다. ID/Dev: {self.source}")
 
-        # 2) 포맷, 해상도, FPS 명시
+        # 2) 포맷, 해상도, FPS 설정
         self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
@@ -358,7 +350,7 @@ class LoadCamera:
             raise StopIteration
         self.frame += 1
 
-        # letterbox(추론용 리사이즈+패딩)
+        # letterbox
         img = letterbox(img0, self.img_size, stride=self.stride)[0]
         img = img[:, :, ::-1].transpose(2, 0, 1)
         img = np.ascontiguousarray(img)
@@ -427,7 +419,9 @@ class LoadImages:
             img0 = cv2.imread(path)
             assert img0 is not None, 'Image Not Found ' + path
 
+        # 강제 리사이즈(1280x720) -> 실제 상황에 맞춰 수정 가능
         img0 = cv2.resize(img0, (1280, 720), interpolation=cv2.INTER_LINEAR)
+
         img = letterbox(img0, self.img_size, stride=self.stride)[0]
         img = img[:, :, ::-1].transpose(2, 0, 1)
         img = np.ascontiguousarray(img)
@@ -492,12 +486,11 @@ def lane_line_mask(ll=None, threshold=0.5):
       return ll_seg_mask
 
     수정:
-      - threshold 인자로 받고,
+      - threshold 인자를 받고,
       - torch.round 대신 (x > threshold) 사용
     """
     ll_predict = ll[:, :, 12:372, :]
-    ll_seg_mask = F.interpolate(ll_predict, scale_factor=2, mode='bilinear')  # shape: (N,1,H,W), float in [0,1]
-    # 보수적인 threshold 적용 (기본 0.5)
+    ll_seg_mask = F.interpolate(ll_predict, scale_factor=2, mode='bilinear')  # shape: (N,1,H,W)
     ll_seg_mask = (ll_seg_mask > threshold).int().squeeze(1)
     ll_seg_mask = ll_seg_mask.squeeze().cpu().numpy()
     return ll_seg_mask

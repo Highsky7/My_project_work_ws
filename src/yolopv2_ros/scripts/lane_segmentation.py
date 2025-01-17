@@ -30,8 +30,9 @@ ROS 노드:
  1) Lane Line 세그멘테이션 (전체 이미지)
  2) 이진화 마스크 + Thinning (두꺼운 선 -> 얇은 선)
  3) Bird’s Eye View(BEV) 변환
- 4) 결과를 ROS 토픽 (mono8) 퍼블리시
- 5) 실시간 창 및 저장된 영상에서도 얇은 차선을 (BEV 형태로) 확인
+ 4) ROI 영역만 남기고 바깥은 0(검정) 처리 -> ROI 내 차선만 남김
+ 5) 결과를 ROS 토픽 (mono8) 퍼블리시
+ 6) 실시간 창 및 저장된 영상에도 ROI 반영된 BEV 형태로 확인
 """
 
 def make_parser():
@@ -47,15 +48,15 @@ def make_parser():
     parser.add_argument('--device', default='0',
                         help='cuda device, i.e. 0 or cpu')
 
-    # (수정) 보수적 세그멘테이션을 위한 Threshold (float in [0.0, 1.0])
+    # 보수적 세그멘테이션을 위한 Threshold (float in [0.0, 1.0])
     parser.add_argument('--lane-thres', type=float, default=0.8,
                         help='Threshold for lane segmentation mask (0.0 ~ 1.0). Higher => more conservative')
 
-    # Detection용이지만, 우선은 남겨둠
+    # Detection 용(사용안함)이지만 파라미터만 유지
     parser.add_argument('--conf-thres', type=float, default=0.3, help='(unused)')
     parser.add_argument('--iou-thres', type=float, default=0.45, help='(unused)')
 
-    # --nosave: True면 저장 O, False면 저장 X
+    # --nosave: True면 저장 X, False면 저장 O
     parser.add_argument('--nosave', action='store_true',
                         help='if true => do NOT save images/videos, else => save')
 
@@ -69,6 +70,11 @@ def make_parser():
     # 프레임 스킵
     parser.add_argument('--frame-skip', type=int, default=0,
                         help='Skip N frames per read (0 for no skip)')
+
+    # (추가) ROI 설정 (x, y, w, h)
+    # ROI가 (0,0,0,0)이면 사용 안 함
+    parser.add_argument('--roi', nargs=4, type=int, default=[0, 300, 800, 900],
+                        help='ROI rectangle in the BEV image: x y w h')
 
     return parser
 
@@ -106,7 +112,8 @@ def detect_and_publish(opt, pub_mask):
     1) Lane Line 세그멘테이션
     2) Thinning -> (얇은 차선)
     3) Bird’s Eye View(BEV) 변환
-    4) ROS 퍼블리시, 실시간 표시, 저장
+    4) ROI 영역 바깥차선 제거(=0)
+    5) ROS 퍼블리시, 실시간 표시, 저장
     """
 
     # OpenCV 최적화
@@ -122,7 +129,7 @@ def detect_and_publish(opt, pub_mask):
     lane_thr = opt.lane_thres  # float in [0.0, 1.0]
     imgsz = opt.img_size
 
-    # --nosave: true -> 저장 함(이중부정)
+    # --nosave: true -> 저장 X, false -> 저장 O
     save_img = not opt.nosave and (isinstance(source, str) and not source.endswith('.txt'))
 
     # 결과 저장 경로
@@ -160,43 +167,31 @@ def detect_and_publish(opt, pub_mask):
         model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))
 
     t0 = time.time()
-    # 프레임 스킵(혹시모를 딜레이 발생 시 활성화, 현재는 스킵하는 프레임 = 0)
-    # frame_skip = opt.frame_skip
-    # frame_counter = 0
 
-    # -------------------------------
-    # 3-A) BEV를 위한 파라미터 설정 (예시)
-    # -------------------------------
-    # 아래 src/dst 좌표는 실험 환경에 맞춰 조정해야 합니다.
-    # 예: 원본 이미지(640x480 가정)에서 사다리꼴 영역 4점
-    # 주의: im0s.shape 등 실제 높이/너비와 맞추세요!
-    # BEV 변환용 파라미터 (src_points는 카메라 영상에서 “BEV로 만들고 싶은 사다리꼴 영역”, dst_points는 “위에서 내려다본 결과가 차지할 직사각형(크기=bev_size)”.
+    # ----------------------------------------------------------
+    # 3-A) BEV를 위한 파라미터 설정 (예시, 실제 카메라 환경에 맞게 조정필요)
+    # ----------------------------------------------------------
     src_points = np.float32([
-        [400, 300],  # 왼쪽 위
-        [880, 300],  # 오른쪽 위
-        [100,  720],  # 왼쪽 아래
+        [400, 300],   # 왼쪽 위
+        [880, 300],   # 오른쪽 위
+        [100, 720],   # 왼쪽 아래
         [1180, 720]   # 오른쪽 아래
     ])
     dst_points = np.float32([
-        [200,   0],  # 왼쪽 위
-        [1080,   0],  # 오른쪽 위
+        [200,   0],   # 왼쪽 위
+        [1080,  0],   # 오른쪽 위
         [200, 1200],  # 왼쪽 아래
-        [1080, 1200]   # 오른쪽 아래
+        [1080, 1200]  # 오른쪽 아래
     ])
     bev_size = (800, 1200)  # (width, height)
-
-    # 변환 행렬
     M = cv2.getPerspectiveTransform(src_points, dst_points)
+
+    # (추가) ROI 설정
+    roi_x, roi_y, roi_w, roi_h = opt.roi
+    use_roi = (roi_w > 0 and roi_h > 0)
 
     # 메인 루프
     for path_item, img, im0s, vid_cap in dataset:
-        # 프레임 스킵
-        # if frame_skip > 0:
-        #     if frame_counter % (frame_skip + 1) != 0:
-        #         frame_counter += 1
-        #         continue
-        #     frame_counter += 1
-
         if dataset.mode == 'stream' and start_time is None:
             start_time = time.time()
 
@@ -212,23 +207,27 @@ def detect_and_publish(opt, pub_mask):
             [_, _], seg, ll = model(img_t)
         t2 = time_synchronized()
 
-        # (1) Lane Segmentation => (2) Threshold
-        #    lane_line_mask(ll, threshold=lane_thr) 내부에서 (x>threshold).int()
+        # (1) Lane Segmentation -> (2) Threshold
         ll_seg = lane_line_mask(ll, threshold=lane_thr)
-
-        # ll_seg는 이미 0/1 ndarray. => 255 스케일로 변환
         binary_mask = (ll_seg * 255).astype(np.uint8)
 
-        # 2) Thinning 모폴로지 연산(두꺼운 선 -> 얇은 선)
-        # 예: 단순 erode, 반복 횟수는 필요에 따라 조정(숫자가 클수록 선 얇아짐)
-        # kernel = np.ones((5,5), np.uint8)
-        # thin_mask = cv2.erode(binary_mask, kernel, iterations=3)
-
-        # 2) Thinning 차선 스켈레톤화(Thinning, Zhang-Suen)
+        # 2) Thinning (Zhang-Suen)
         thin_mask = ximgproc.thinning(binary_mask, thinningType=ximgproc.THINNING_ZHANGSUEN)
 
         # 3) BEV 변환
         bev_mask = cv2.warpPerspective(thin_mask, M, bev_size)
+
+        # 4) ROI 영역 바깥부분은 0으로 처리해서 제거
+        if use_roi:
+            # ROI가 BEV 이미지 범위를 넘지 않도록 보정
+            x2 = min(roi_x + roi_w, bev_mask.shape[1])
+            y2 = min(roi_y + roi_h, bev_mask.shape[0])
+
+            # 4-1) ROI 영역만 남기는 방법(바깥을 0으로)
+            roi_only_mask = np.zeros_like(bev_mask, dtype=np.uint8)
+            # ROI 내부 부분만 그대로 복사
+            roi_only_mask[roi_y:y2, roi_x:x2] = bev_mask[roi_y:y2, roi_x:x2]
+            bev_mask = roi_only_mask
 
         inf_time.update(t2 - t1, img_t.size(0))
 
@@ -239,8 +238,13 @@ def detect_and_publish(opt, pub_mask):
         except CvBridgeError as e:
             rospy.logerr("CvBridge Error: %s", str(e))
 
-        # 실시간 화면 표시: BEV 변환 결과
-        cv2.imshow('YOLOPv2 Thin Mask (BEV)', bev_mask)
+        # 실시간 화면 표시
+        bev_bgr = cv2.cvtColor(bev_mask, cv2.COLOR_GRAY2BGR)
+        if use_roi:
+            # ROI 사각형 시각화
+            cv2.rectangle(bev_bgr, (roi_x, roi_y), (x2, y2), (0, 255, 0), 2)
+
+        cv2.imshow('YOLOPv2 Thin Mask (BEV)', bev_bgr)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             rospy.loginfo("[INFO] q 키 입력 -> 종료")
             if isinstance(vid_writer, cv2.VideoWriter):
@@ -261,55 +265,39 @@ def detect_and_publish(opt, pub_mask):
         # 저장 로직 (BEV 마스크)
         # ----------------------
         if save_img:
-            # 3채널 변환
-            bev_bgr = cv2.cvtColor(bev_mask, cv2.COLOR_GRAY2BGR)
-
             if dataset.mode == 'image':
                 save_path = str(save_dir / Path(path_item).name)
-            else:
-                save_path = str(save_dir / Path(path_item).stem) + '.mp4'
-
-            if dataset.mode == 'image':
                 sp = Path(save_path)
                 if sp.suffix.lower() not in ['.jpg', '.jpeg', '.png', '.bmp']:
                     sp = sp.with_suffix('.jpg')
-
-                # BEV 결과 이미지로 저장
                 cv2.imwrite(str(sp), bev_bgr)
 
             elif dataset.mode == 'video':
-                nonlocal_vid_path = vid_path
-                nonlocal_vid_writer = vid_writer
-
-                if nonlocal_vid_path != save_path:
-                    nonlocal_vid_path = save_path
-                    if isinstance(nonlocal_vid_writer, cv2.VideoWriter):
-                        nonlocal_vid_writer.release()
-
+                # 비디오 저장
+                save_path = str(save_dir / Path(path_item).stem) + '.mp4'
+                if vid_path != save_path:
+                    vid_path = save_path
+                    if isinstance(vid_writer, cv2.VideoWriter):
+                        vid_writer.release()
                     if vid_cap:
                         fps = vid_cap.get(cv2.CAP_PROP_FPS) or 30
                     else:
                         fps = 30
                     wv, hv = bev_bgr.shape[1], bev_bgr.shape[0]
-
-                    rospy.loginfo(f"[INFO] 비디오 저장 시작: {nonlocal_vid_path} (FPS={fps}, size=({wv},{hv}))")
-                    nonlocal_vid_writer = cv2.VideoWriter(
-                        nonlocal_vid_path,
+                    rospy.loginfo(f"[INFO] 비디오 저장 시작: {vid_path} (FPS={fps}, size=({wv},{hv}))")
+                    vid_writer = cv2.VideoWriter(
+                        vid_path,
                         cv2.VideoWriter_fourcc(*'mp4v'),
                         fps,
                         (wv, hv)
                     )
+                vid_writer.write(bev_bgr)
 
-                # BEV 영상 저장
-                nonlocal_vid_writer.write(bev_bgr)
-                vid_path = nonlocal_vid_path
-                vid_writer = nonlocal_vid_writer
             else:
                 # webcam stream
                 record_frames.append(bev_bgr.copy())
 
     # end for
-    # 자원 정리
     if isinstance(vid_writer, cv2.VideoWriter):
         vid_writer.release()
     if hasattr(dataset, 'cap') and dataset.cap:
