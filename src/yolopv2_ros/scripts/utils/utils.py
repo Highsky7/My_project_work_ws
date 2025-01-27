@@ -16,8 +16,7 @@ import torch.nn.functional as F
 
 logger = logging.getLogger(__name__)
 
-def git_describe(path=Path(__file__).parent):  # path must be a directory
-    # return human-readable git description, i.e. v5.0-5-g3e25f1e
+def git_describe(path=Path(__file__).parent):
     s = f'git -C {path} describe --tags --long --always'
     try:
         return subprocess.check_output(s, shell=True, stderr=subprocess.STDOUT).decode()[:-1]
@@ -75,7 +74,7 @@ class SegmentationMetric(object):
     def pixelAccuracy(self):
         acc = np.diag(self.confusionMatrix).sum() / self.confusionMatrix.sum()
         return acc
-        
+
     def lineAccuracy(self):
         Acc = np.diag(self.confusionMatrix) / (self.confusionMatrix.sum(axis=1) + 1e-12)
         return Acc[1]
@@ -98,7 +97,7 @@ class SegmentationMetric(object):
         IoU[np.isnan(IoU)] = 0
         mIoU = np.nanmean(IoU)
         return mIoU
-    
+
     def IntersectionOverUnion(self):
         intersection = np.diag(self.confusionMatrix)
         union = np.sum(self.confusionMatrix, axis=1) + \
@@ -118,9 +117,9 @@ class SegmentationMetric(object):
     def Frequency_Weighted_Intersection_over_Union(self):
         freq = np.sum(self.confusionMatrix, axis=1) / np.sum(self.confusionMatrix)
         iu = np.diag(self.confusionMatrix) / (
-                np.sum(self.confusionMatrix, axis=1) +
-                np.sum(self.confusionMatrix, axis=0) -
-                np.diag(self.confusionMatrix))
+            np.sum(self.confusionMatrix, axis=1) +
+            np.sum(self.confusionMatrix, axis=0) -
+            np.diag(self.confusionMatrix))
         FWIoU = (freq[freq > 0] * iu[freq > 0]).sum()
         return FWIoU
 
@@ -159,8 +158,8 @@ def split_for_trace_model(pred=None, anchor_grid=None):
         pred[i] = pred[i].view(bs, 3, 85, ny, nx).permute(0, 1, 3, 4, 2).contiguous()
         y = pred[i].sigmoid()
         gr = _make_grid(nx, ny).to(pred[i].device)
-        y[..., 0:2] = (y[..., 0:2] * 2. - 0.5 + gr) * st[i]  # xy
-        y[..., 2:4] = (y[..., 2:4] * 2) ** 2 * anchor_grid[i]  # wh
+        y[..., 0:2] = (y[..., 0:2] * 2. - 0.5 + gr) * st[i]
+        y[..., 2:4] = (y[..., 2:4] * 2) ** 2 * anchor_grid[i]
         z.append(y.view(bs, -1, 85))
     pred = torch.cat(z, 1)
     return pred
@@ -316,8 +315,6 @@ class LoadCamera:
         self.source = source
         self.img_size = img_size
         self.stride = stride
-
-        # 1) 정수가 아니라 '/dev/video2'처럼 문자열일 경우도 대응
         try:
             cam_index = int(self.source)
             self.cap = cv2.VideoCapture(cam_index, cv2.CAP_V4L2)
@@ -327,16 +324,16 @@ class LoadCamera:
         if not self.cap.isOpened():
             raise Exception(f"카메라를 열 수 없습니다. ID/Dev: {self.source}")
 
-        # 2) 포맷, 해상도, FPS 설정
         self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
         self.cap.set(cv2.CAP_PROP_FPS, 30)
+        self.cap.set(cv2.CAP_PROP_AUTOFOCUS, 0)  # AUTOFOCUS 끄기
 
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.fps = self.cap.get(cv2.CAP_PROP_FPS)
-        print(f"[INFO] Camera opened: {self.width}x{self.height} @ {self.fps} FPS (MJPEG, V4L2)")
+        print(f"[INFO] Camera opened: {self.width}x{self.height} @ {self.fps} FPS")
 
         self.mode = 'stream'
         self.frame = 0
@@ -350,8 +347,14 @@ class LoadCamera:
             raise StopIteration
         self.frame += 1
 
-        # letterbox
-        img = letterbox(img0, self.img_size, stride=self.stride)[0]
+       # 원 코드에서는 아래에서 letterbox -> (img_size) 변환
+        # 하지만, 이제는 bev_lane_thinning.py 내부에서
+        #   do_bev_transform를 쓰므로, 여기서는
+        #   "그냥 1280x720"을 반환해도 무방
+        # 다만 YOLO 모델에 그대로 넣는 경우를 고려하면
+        #   letterbox(img0, (self.img_size, self.img_size)) 해도 됨
+        # => 일단 지금은 아래처럼 "네트워크 입력용 img"를 만들긴 함
+        img = letterbox(img0, (self.img_size, self.img_size), stride=self.stride)[0]
         img = img[:, :, ::-1].transpose(2, 0, 1)
         img = np.ascontiguousarray(img)
 
@@ -385,14 +388,18 @@ class LoadImages:
         self.nf = ni + nv
         self.video_flag = [False] * ni + [True] * nv
         self.mode = 'image'
+        self.count = 0  # <-- 추가: 객체 생성 시 카운터를 0으로 초기화
+        self.cap = None
+
         if any(videos):
             self.new_video(videos[0])
         else:
             self.cap = None
+
         assert self.nf > 0, f'No images or videos found in {p}. '
 
     def __iter__(self):
-        self.count = 0
+        self.count = 0  # <-- 추가: 매번 순회(iter) 시작 시 0으로 초기화
         return self
 
     def __next__(self):
@@ -415,14 +422,16 @@ class LoadImages:
             self.frame += 1
             print(f'video {self.count + 1}/{self.nf} ({self.frame}/{self.nframes}) {path}: ', end='')
         else:
-            self.count += 1
+            self.mode = 'image'
             img0 = cv2.imread(path)
             assert img0 is not None, 'Image Not Found ' + path
+            self.count += 1
 
-        # 강제 리사이즈(1280x720) -> 실제 상황에 맞춰 수정 가능
-        img0 = cv2.resize(img0, (1280, 720), interpolation=cv2.INTER_LINEAR)
+        # 1280x720로 강제 리사이즈
+        img0 = cv2.resize(img0, (1280, 720))
 
-        img = letterbox(img0, self.img_size, stride=self.stride)[0]
+        # YOLO 입력용 letterbox
+        img = letterbox(img0, (self.img_size, self.img_size), stride=self.stride)[0]
         img = img[:, :, ::-1].transpose(2, 0, 1)
         img = np.ascontiguousarray(img)
 
@@ -466,31 +475,18 @@ def letterbox(img, new_shape=(640, 640), color=(114, 114, 114),
     left, right = int(round(dw - 0.1)), int(round(dw + 0.1))
     img = cv2.copyMakeBorder(img, top, bottom, left, right,
                              cv2.BORDER_CONSTANT, value=color)
-
     return img, ratio, (dw, dh)
 
 def driving_area_mask(seg=None):
     da_predict = seg[:, :, 12:372, :]
-    da_seg_mask = torch.nn.functional.interpolate(da_predict, scale_factor=2, mode='bilinear')
+    da_seg_mask = F.interpolate(da_predict, scale_factor=2, mode='bilinear')
     _, da_seg_mask = torch.max(da_seg_mask, 1)
     da_seg_mask = da_seg_mask.int().squeeze().cpu().numpy()
     return da_seg_mask
 
 def lane_line_mask(ll=None, threshold=0.5):
-    """
-    원본:
-      ll_predict = ll[:, :, 12:372, :]
-      ll_seg_mask = F.interpolate(ll_predict, scale_factor=2, mode='bilinear')
-      ll_seg_mask = torch.round(ll_seg_mask).squeeze(1)
-      ll_seg_mask = ll_seg_mask.int().squeeze().cpu().numpy()
-      return ll_seg_mask
-
-    수정:
-      - threshold 인자를 받고,
-      - torch.round 대신 (x > threshold) 사용
-    """
     ll_predict = ll[:, :, 12:372, :]
-    ll_seg_mask = F.interpolate(ll_predict, scale_factor=2, mode='bilinear')  # shape: (N,1,H,W)
+    ll_seg_mask = F.interpolate(ll_predict, scale_factor=2, mode='bilinear')
     ll_seg_mask = (ll_seg_mask > threshold).int().squeeze(1)
     ll_seg_mask = ll_seg_mask.squeeze().cpu().numpy()
     return ll_seg_mask
