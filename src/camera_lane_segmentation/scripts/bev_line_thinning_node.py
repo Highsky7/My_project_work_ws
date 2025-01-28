@@ -15,34 +15,31 @@ from pathlib import Path
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge, CvBridgeError
 
-# utils.py
+# == utils.py (동일 워크스페이스 내에 있는 utils/utils.py) ==
+# --------------------------------------------------------------
+#  내부에 lane_line_mask, LoadCamera, LoadImages 등 함수/클래스가 정의되어 있다고 가정.
 from utils.utils import (
     time_synchronized,
     select_device,
     increment_path,
-    lane_line_mask,  # YOLOPv2 (공식 슬라이스+업샘플)
+    lane_line_mask,
     AverageMeter,
     LoadCamera,
-    LoadImages,
-    letterbox
+    LoadImages
 )
 
 """
-[수정 버전]
-1) 원본 이미지 -> YOLOPv2 세그멘테이션 -> 이진화(binary_mask)
-2) binary_mask를 (bev_params.npz) 기반으로 BEV 변환
-3) 변환된 마스크에 대해 Thinning & 추가 알고리즘
-4) 실시간 창 + 저장 + ROS 퍼블리시
-(원본 컬러 영상도 BEV 변환하여 같이 확인 가능)
+ROS 노드 (BEV 변환 + Thinning):
+ 1) 카메라(또는 비디오) 프레임을 먼저 BEV(Birds-Eye View)로 변환
+ 2) YOLOPv2 차선 세그멘테이션 -> 이진화 (lane_line_mask)
+ 3) 세선화(Thinning)로 얇은 라인 추출
+ 4) 결과를 ROS 토픽(mono8)으로 퍼블리시, 또한 화면 표시 및 (옵션) 파일 저장
 
-주의:
- - lane_line_mask()는 원래 (ch=2) seg출력 → [12:372] 슬라이스 → 2×업샘플 이므로,
-   최종 마스크가 (720, 1280) 등일 수 있음
- - 따라서 warp 전에는 마스크 해상도에 맞춰서 transform 해야 하므로
-   (원본 프레임 크기와 동일하다고 가정해야 한다)
- - 두 스크립트(이 코드 & bev_utils.py) 모두 해상도/리사이즈/Letterbox가
-   일관되게 유지되어야, BEV 파라미터가 올바르게 적용됩니다.
+ - 본 예시 코드에서는 line_fit_filter, morph_close 등 추가 필터를 주석으로 남겨둠.
+ - 원하시면 주석 해제 후 적절한 파라미터로 사용하실 수 있습니다.
+ - 아래 BEV 예시는 단순히 직사영역을 warp하는 예시이므로, 실제 환경에 맞춰 src/dst 좌표를 수정해야 합니다.
 """
+
 # ---------------------------------------------------------------------------
 # (옵션) 모폴로지/라인 필터 예시 함수들 -- 필요 시 주석 해제 사용
 # ---------------------------------------------------------------------------
@@ -164,12 +161,12 @@ def advanced_filter_pipeline(binary_mask):
     """
     step1 = morph_open(binary_mask, ksize=3)
     step2 = morph_close(step1, ksize=5)
-    step3 = remove_small_components(step2, min_size=100)
+    step3 = remove_small_components(step2, min_size=200)
     step4 = keep_top2_components(step3, min_area=150)
 
     # 추가: line_fit_filter
     #  가로선(각도 10~170도 내) + 잔차 5 이하
-    step5 = line_fit_filter(step4, max_line_fit_error=5.0, min_angle_deg=20.0, max_angle_deg=160.0)
+    step5 = line_fit_filter(step4, max_line_fit_error=5.0, min_angle_deg=10.0, max_angle_deg=170.0)
 
     return step5
 
@@ -185,72 +182,68 @@ def post_thinning_filter(thin_mask):
     # 세선화가 된 후라도, 수평/비직선 부분이 섞여 있을 수 있으므로 다시 한 번 fit
     # s3 = line_fit_filter(s2, max_line_fit_error=5.0, min_angle_deg=30.0, max_angle_deg=150.0)
     return s2
-def final_filter(bev_mask):
-    """
-    1) morph_open -> morph_close
-    2) remove_small_components
-    3) keep_top2_components
-    4) line_fit_filter(직선 형태 + 수직 방향만 유지)
-    """
-    f1 = morph_open(bev_mask, ksize=2)
-    f2 = morph_close(f1, ksize=6)
-    f3 = remove_small_components(f2, min_size=100)
-    f4 = keep_top2_components(f3, min_area=50)
-
-    # 추가: line_fit_filter
-    #  가로선(각도 10~170도 내) + 잔차 5 이하
-    f5 = line_fit_filter(f4, max_line_fit_error=5, min_angle_deg=15.0, max_angle_deg=165.0)
-
-    return f5
 # ---------------------------------------------------------------------------
 # BEV 변환 예시 함수
 # ---------------------------------------------------------------------------
-def do_bev_transform(image, bev_param_file):
+def do_bev_transform(image, param_file):
     """
-    bev_params.npz (src_points, dst_points, warp_w, warp_h) 사용.
+    단순 Birds-Eye View 변환 (Homography)
+    - src_points, dst_points는 예시값입니다.
+    - 실제 환경에 맞춰서 조정해야 합니다.
     """
-    params = np.load(bev_param_file)
+
+    # 예시 source 좌표 (왼 하단, 오른 하단, 왼 상단, 오른 상단)
+    # 주행 영상에 맞춰 알맞게 지정해야 합니다.
+    # 파라미터 로드
+    params = np.load(param_file)
     src_points = params['src_points']   # (4,2)
     dst_points = params['dst_points']   # (4,2)
     warp_w = int(params['warp_w'])
     warp_h = int(params['warp_h'])
 
+    # Homography
     M = cv2.getPerspectiveTransform(src_points, dst_points)
     bev = cv2.warpPerspective(image, M, (warp_w, warp_h), flags=cv2.INTER_LINEAR)
+
     return bev
 
+# ---------------------------------------------------------------------------
 def make_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', nargs='+', type=str,
                         default='/home/highsky/yolopv2.pt',
-                        help='model.pt path(s)')
+                        help='TorchScript YOLOPv2 모델 경로')
     parser.add_argument('--source', type=str,
-                        default='0',#,'/home/highsky/Videos/Webcam/차선직진영상.mp4'
-                        help='source: 0(webcam) or path to video/image')
+                        default='0',#'/home/highsky/Videos/Webcam/bev변환용 영상.mp4',
+                        help='영상 파일 경로 or 0(웹캠)')
     parser.add_argument('--img-size', type=int, default=640,
-                        help='YOLO 추론 해상도')
+                        help='추론 이미지 크기')
     parser.add_argument('--device', default='0',
-                        help='cuda device: 0 or cpu')
+                        help='cuda device(예:0) 또는 cpu')
     parser.add_argument('--lane-thres', type=float, default=0.5,
-                        help='Threshold for lane segmentation (0.0~1.0)')
+                        help='차선 세그멘테이션 임계값(0~1)')
     parser.add_argument('--nosave', action='store_false',
-                        help='if true => do NOT save images/videos')
-    parser.add_argument('--project', default='runs/detect',
-                        help='save results to project/name')
+                        help='true면 결과영상 저장 안함, 기본 false=저장O')
+    parser.add_argument('--project', default='/home/highsky/My_project_work_ws/runs/detect',
+                        help='결과 저장 폴더')
     parser.add_argument('--name', default='exp',
-                        help='save results to project/name')
+                        help='결과 저장 폴더 이름')
     parser.add_argument('--exist-ok', action='store_false',
-                        help='existing project/name ok, do not increment')
+                        help='기존 폴더 있어도 ok, 덮어쓰기')
     parser.add_argument('--frame-skip', type=int, default=0,
-                        help='Skip N frames (0 for no skip)')
+                        help='프레임 스킵(성능 문제 시 사용)')
+    # 추가: BEV 파라미터 파일 (default=~/bev_params_3.npz)
     parser.add_argument('--param-file', type=str,
-                        default='bev_params.npz',
-                        help='BEV 파라미터 (src_points, dst_points, warp_w, warp_h)')
+                        default='/home/highsky/My_project_work_ws/bev_params.npz',
+                        help='bev_utils.py에서 저장한 npz 파라미터 파일 경로')
     return parser
 
 def make_webcam_video(record_frames, save_dir: Path, stem_name: str, real_duration: float):
+    """
+    웹캠 모드 등 스트림 영상을 mp4로 저장
+    """
     if len(record_frames) == 0:
-        rospy.loginfo("[INFO] 저장할 웹캠 프레임이 없습니다.")
+        rospy.loginfo("[INFO] 저장할 스트림 프레임 없음.")
         return
 
     num_frames = len(record_frames)
@@ -258,38 +251,48 @@ def make_webcam_video(record_frames, save_dir: Path, stem_name: str, real_durati
         real_duration = 1e-6
     real_fps = num_frames / real_duration
 
-    rospy.loginfo("[INFO] 웹캠 녹화: 총 %d프레임, 소요 %.2f초 => FPS ~ %.2f",
-                  num_frames, real_duration, real_fps)
-
     save_path = str(save_dir / f"{stem_name}_webcam.mp4")
     h, w = record_frames[0].shape[:2]
-    out = cv2.VideoWriter(save_path,
-                          cv2.VideoWriter_fourcc(*'mp4v'),
-                          real_fps,
-                          (w, h))
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(save_path, fourcc, real_fps, (w, h))
     if not out.isOpened():
-        rospy.logerr(f"[ERROR] 비디오 라이터를 열 수 없습니다: {save_path}")
+        rospy.logerr("[ERROR] 비디오 라이터 열 수 없음: %s", save_path)
         return
 
     for f in record_frames:
         out.write(f)
-
     out.release()
-    rospy.loginfo("[INFO] 웹캠 결과 영상 저장 완료: %s", save_path)
+    rospy.loginfo("[INFO] 웹캠 결과영상 저장 완료: %s", save_path)
+
 
 def detect_and_publish(opt, pub_mask):
+    """
+    메인 파이프라인:
+     1) 프레임 획득 -> BEV 변환
+     2) YOLOPv2 차선 세그멘테이션 -> 이진화
+     3) 세선화(Thinning)
+     4) ROS 퍼블리시 + 화면 표시 + (옵션) 결과 저장
+    """
+    # OpenCV 최적화 설정
     cv2.setUseOptimized(True)
     cv2.setNumThreads(0)
+
+    # PyTorch cudnn 설정
     cudnn.benchmark = True
+
+    # 파라미터 로드
+    bev_param_file = opt.param_file
 
     bridge = CvBridge()
 
     source, weights = opt.source, opt.weights
     imgsz = opt.img_size
     lane_threshold = opt.lane_thres
-    save_img = not opt.nosave
-    bev_param_file = opt.param_file
 
+    # --nosave 옵션에 따라 저장 여부 결정
+    save_img = not opt.nosave
+
+    # 결과 저장 폴더 구성
     save_dir = Path(increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok))
     save_dir.mkdir(parents=True, exist_ok=True)
 
@@ -298,9 +301,9 @@ def detect_and_publish(opt, pub_mask):
     vid_writer = None
     current_save_size = None
 
-    # YOLO 모델 로드
+    # 모델 로드
     stride = 32
-    model = torch.jit.load(weights)
+    model = torch.jit.load(weights)   # TorchScript 모델 로드
     device = select_device(opt.device)
     half = (device.type != 'cpu')
     model = model.to(device)
@@ -308,12 +311,12 @@ def detect_and_publish(opt, pub_mask):
         model.half()
     model.eval()
 
-    # 데이터셋 로드
+    # 데이터셋 로드 (카메라 or 파일)
     if source.isdigit():
-        rospy.loginfo("[INFO] 웹캠(장치=%s) 열기", source)
+        rospy.loginfo("[INFO] 웹캠(장치ID=%s) 열기", source)
         dataset = LoadCamera(source, img_size=imgsz, stride=stride)
     else:
-        rospy.loginfo("[INFO] 파일(이미지/동영상): %s", source)
+        rospy.loginfo("[INFO] 파일 로딩: %s", source)
         dataset = LoadImages(source, img_size=imgsz, stride=stride)
 
     record_frames = []
@@ -321,26 +324,58 @@ def detect_and_publish(opt, pub_mask):
 
     # GPU warm-up
     if device.type != 'cpu':
-        _ = model(torch.zeros(1,3,imgsz,imgsz).to(device).type_as(next(model.parameters())))
+        _ = model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))
 
     t0 = time.time()
     frame_skip = opt.frame_skip
     frame_counter = 0
 
-    for path_item, net_input_img, im0s, vid_cap in dataset:
-        # (A) 프레임 스킵
+    # ---------------------------
+    # 메인 루프
+    # ---------------------------
+    for path_item, img, im0s, vid_cap in dataset:
+        # 프레임 스킵 로직
         if frame_skip > 0:
             if frame_counter % (frame_skip + 1) != 0:
                 frame_counter += 1
                 continue
             frame_counter += 1
 
+        # 스트림 모드(웹캠)라면 시작시간 기록
         if dataset.mode == 'stream' and start_time is None:
             start_time = time.time()
 
-        # (B) YOLO 추론: 원래 코드에서 bev_transform 전이었지만, 이제는 먼저 세그멘테이션
-        # net_input_img: letterbox(...)된 (C,H,W) RGB
-        img_t = torch.from_numpy(net_input_img).to(device)
+        # ---------------------------
+        # (A) BEV 변환 (원본 프레임 im0s -> bev_im)
+        # ---------------------------
+        # im0s: 원본 BGR 프레임
+        bev_im = do_bev_transform(im0s, bev_param_file)
+        # 이 bev_im을 YOLOPv2에 넣기 위해서 letterbox 등 전처리 필요
+
+        # 1) letterbox+RGB+transpose -> pytorch용 img
+        #    여기서는 dataset이 이미 letterbox 처리를 img로 해놨지만,
+        #    원본 im0s가 아니라 bev_im을 사용하려면 직접 처리해야 함.
+        #    (간단히 img와 동일한 파이프라인 적용)
+
+        # letterbox는 LoadImages/LoadCamera에서 이미 했지만,
+        # BEV후 해상도가 바뀌지 않아서, 일관성을 위해 다음과 같이 수행:
+        # (반드시 dataset이 하는 letterbox와 동일한 로직이어야 함)
+        # 그냥 "img" 대체용으로 bev_im을 사용하겠다 → 아래처럼 교체:
+        #
+        # "img"는 numpy(C,H,W,RGB) 형태이므로, bev_im(BGR,H,W) → letterbox → (C,H,W)
+        #
+        # 편의상, dataset이 준 "img" 대신, 아래 과정을 수동 수행:
+
+        # size를 (imgsz, imgsz) 등으로 맞추고, BGR->RGB, transpose
+        bev_resized = cv2.resize(bev_im, (imgsz, imgsz), interpolation=cv2.INTER_LINEAR)
+        bev_rgb = bev_resized[:, :, ::-1]  # BGR->RGB
+        bev_tensor = bev_rgb.transpose(2, 0, 1)  # (H,W,C)->(C,H,W)
+        bev_tensor = np.ascontiguousarray(bev_tensor)
+
+        # ---------------------------
+        # (B) YOLOPv2 추론
+        # ---------------------------
+        img_t = torch.from_numpy(bev_tensor).to(device)
         img_t = img_t.half() if half else img_t.float()
         img_t /= 255.0
         if img_t.ndimension() == 3:
@@ -348,70 +383,68 @@ def detect_and_publish(opt, pub_mask):
 
         t1 = time_synchronized()
         with torch.no_grad():
+            # YOLOPv2는 [det_out, seg_out], ll_out(차선) 이렇게 3개를 반환
             [_, _], seg, ll = model(img_t)
         t2 = time_synchronized()
-        inf_time.update(t2 - t1, img_t.size(0))
 
-        # (C) 차선 세그멘테이션 -> 이진화
-        ll_seg_mask = lane_line_mask(ll, threshold=lane_threshold)
+        # ---------------------------
+        # (C) 차선 세그멘테이션 -> 이진화 -> 세선화
+        # ---------------------------
+        ll_seg_mask = lane_line_mask(ll, threshold=opt.lane_thres)
         binary_mask = (ll_seg_mask > 0).astype(np.uint8) * 255
         # filtered_mask = advanced_filter_pipeline(binary_mask)
-        # # 이 시점에서 binary_mask는 "원근 시점" (예: 720x1280 등) 크기
-        # (D) 세선화(Thinning) + 추가 알고리즘
+        # 세선화(Thinning)
         thin_mask = ximgproc.thinning(binary_mask, thinningType=ximgproc.THINNING_ZHANGSUEN)
-        if thin_mask is None or thin_mask.size == 0:
-            rospy.logwarn("[WARNING] Thinning 결과 비어 있음 -> bev_mask 사용")
-            thin_mask = binary_mask
-        # (E) 이제 이 binary_mask를 BEV 변환
-        #     다만 warpPerspective()는 3채널도 1채널도 모두 처리 가능
-        bev_mask = do_bev_transform(thin_mask, bev_param_file)
-        bevfilter_mask = final_filter(bev_mask)
-        final_mask = ximgproc.thinning(bevfilter_mask, thinningType=ximgproc.THINNING_ZHANGSUEN)
-        if final_mask is None or final_mask.size == 0:
-            rospy.logwarn("[WARNING] Thinning 결과 비어 있음 -> bevfilter_mask 사용")
-            final_mask = bevfilter_mask
-        # bev_mask: (640x640) 가정
+        # if thin_mask is None or thin_mask.size == 0:
+        #     rospy.logwarn("[WARNING] 세선화 결과 없음 -> binary_mask 사용")
+        #     thin_mask = binary_mask
+
+        # ---------------------------
         # (참고) 더 강화된 필터링이 필요하면:
+        # final_mask_result = post_thinning_filter(thin_mask)
+        # thin_mask = ximgproc.thinning(filtered_mask, ...)
+        # post_thinning = line_fit_filter(thin_mask, ...)
+        # ...
+        # ---------------------------
 
+        # ---------------------------
+        # (D) 추론 시간 기록
+        # ---------------------------
+        inf_time.update(t2 - t1, img_t.size(0))
 
-
-
-
-        # (F) 필요하다면 컬러영상도 BEV로 보고 싶다면
-        #     do_bev_transform(im0s, bev_param_file)
-        #     아래처럼 주석 해제:
-        bev_im = do_bev_transform(im0s, bev_param_file)
-
-        # (G) ROS 퍼블리시 (thin_mask는 mono8)
+        # ---------------------------
+        # (E) ROS 퍼블리시
+        # ---------------------------
         try:
-            ros_mask = bridge.cv2_to_imgmsg(final_mask, encoding="mono8")
-            pub_mask.publish(ros_mask)
+            ros_img = bridge.cv2_to_imgmsg(thin_mask, encoding="mono8")
+            pub_mask.publish(ros_img)
         except CvBridgeError as e:
-            rospy.logerr("[ERROR] CvBridge 변환 실패: %s", str(e))
+            rospy.logerr("[ERROR] CvBridge 변환 실패: %s", e)
 
-        # (H) 화면 표시: 2개 창
-        #  - [BEV Image]: 컬러
-        #  - [Thin Mask]: 세선화된 마스크
-        cv2.imshow("BEV Image", bev_im)
-        cv2.imshow("Thin Mask", final_mask)
+        # ---------------------------
+        # (F) 화면 표시
+        # ---------------------------
+        cv2.imshow("BEV Thinning Result", thin_mask)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             rospy.loginfo("[INFO] q -> 종료")
             break
 
-        # (I) 결과 저장
+        # ---------------------------
+        # (G) 결과 저장
+        # ---------------------------
         if save_img:
-            thin_bgr = cv2.cvtColor(final_mask, cv2.COLOR_GRAY2BGR)
+            thin_bgr = cv2.cvtColor(thin_mask, cv2.COLOR_GRAY2BGR)
             if dataset.mode == 'image':
-                # 이미지
+                # 이미지 모드인 경우
                 save_path = str(save_dir / Path(path_item).name)
                 sp = Path(save_path)
-                if sp.suffix.lower() not in ['.jpg','.jpeg','.png','.bmp']:
+                if sp.suffix.lower() not in ['.jpg', '.jpeg', '.png', '.bmp']:
                     sp = sp.with_suffix('.jpg')
                 cv2.imwrite(str(sp), thin_bgr)
                 rospy.loginfo(f"[INFO] 이미지 저장: {sp}")
 
             elif dataset.mode == 'video':
-                # 비디오
+                # 비디오 모드
                 save_path = str(save_dir / Path(path_item).stem) + '.mp4'
                 if vid_path != save_path:
                     vid_path = save_path
@@ -425,14 +458,13 @@ def detect_and_publish(opt, pub_mask):
                     else:
                         fps = 30
 
-                    wv,hv = thin_bgr.shape[1], thin_bgr.shape[0]
+                    wv, hv = thin_bgr.shape[1], thin_bgr.shape[0]
                     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                    vid_writer = cv2.VideoWriter(save_path, fourcc, fps, (wv,hv))
+                    vid_writer = cv2.VideoWriter(save_path, fourcc, fps, (wv, hv))
                     if not vid_writer.isOpened():
-                        rospy.logerr(f"[ERROR] 비디오 라이터 열 수 없음: {save_path}")
+                        rospy.logerr("[ERROR] 비디오 라이터 열 수 없음: %s", save_path)
                         vid_writer = None
-                    current_save_size = (wv,hv)
-                    rospy.loginfo(f"[INFO] 비디오 저장 시작: {vid_path} (fps={fps}, size=({wv},{hv}))")
+                    current_save_size = (wv, hv)
 
                 if vid_writer is not None:
                     if (thin_bgr.shape[1], thin_bgr.shape[0]) != current_save_size:
@@ -440,46 +472,56 @@ def detect_and_publish(opt, pub_mask):
                         try:
                             thin_bgr = cv2.resize(thin_bgr, current_save_size, interpolation=cv2.INTER_LINEAR)
                         except cv2.error as e:
-                            rospy.logerr(f"[ERROR] 리사이즈 실패: {e}")
+                            rospy.logerr("[ERROR] 리사이즈 실패: %s", e)
                             continue
                     vid_writer.write(thin_bgr)
 
             elif dataset.mode == 'stream':
+                # 스트리밍 모드 (웹캠)
                 record_frames.append(thin_bgr.copy())
 
     # end for
 
-    # (마무리)
+    # ---------------------------
+    # 자원 정리
+    # ---------------------------
     if vid_writer is not None:
         vid_writer.release()
         rospy.loginfo(f"[INFO] 비디오 저장 완료: {vid_path}")
 
     if hasattr(dataset, 'cap') and dataset.cap:
         dataset.cap.release()
-
     cv2.destroyAllWindows()
 
+    # 웹캠 모드 녹화 저장
     if dataset.mode == 'stream' and save_img and len(record_frames) > 0:
         end_time = time.time()
         real_duration = end_time - start_time if start_time else 0
         make_webcam_video(record_frames, save_dir, 'webcam0', real_duration)
 
-    rospy.loginfo(f"[INFO] 추론 시간: 평균 {inf_time.avg:.4f}s/frame")
-    rospy.loginfo(f"[INFO] Done. (%.3fs)", (time.time()-t0))
+    rospy.loginfo("[INFO] 추론 시간: 평균 %.4fs/frame", inf_time.avg)
+    rospy.loginfo("[INFO] Done. (%.3fs)", (time.time() - t0))
+
 
 def ros_main():
-    rospy.init_node('bev_lane_thinning_node', anonymous=True)
+    """
+    ROS 노드 초기화 및 실행
+    """
+    rospy.init_node('bev_line_thinning_node', anonymous=True)
 
     parser = make_parser()
     opt, _ = parser.parse_known_args()
 
+    # 퍼블리셔: 최종 thin_mask
     pub_mask = rospy.Publisher('yolopv2/lane_mask', Image, queue_size=1)
+
     detect_and_publish(opt, pub_mask)
 
-    rospy.loginfo("[INFO] bev_lane_thinning_node finished. spin()")
+    rospy.loginfo("[INFO] bev_line_thinning_node finished. spin()")
     rospy.spin()
 
-if __name__=='__main__':
+
+if __name__ == '__main__':
     try:
         with torch.no_grad():
             ros_main()
