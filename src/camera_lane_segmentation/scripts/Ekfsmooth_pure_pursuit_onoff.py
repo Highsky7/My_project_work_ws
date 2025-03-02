@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 import rospy
@@ -261,7 +261,7 @@ def make_parser():
                         default='/home/highsky/yolopv2.pt',
                         help='model.pt 경로')
     parser.add_argument('--source', type=str,
-                        default='/home/highsky/Videos/Webcam/우회전.mp4',
+                        default='0',# /home/highsky/Videos/Webcam/우회전.mp4
                         help='source: 0(webcam) 또는 영상/이미지 파일 경로')
     parser.add_argument('--img-size', type=int, default=640,
                         help='YOLO 추론 해상도')
@@ -602,7 +602,7 @@ def ros_main():
     opt, _ = parser.parse_known_args()
     pub_mask = rospy.Publisher('camera_lane_segmentation/lane_mask', Image, queue_size=1)
     # 퍼블리셔 토픽명을 'auto_steer_angle'으로 설정
-    pub_steering = rospy.Publisher('auto_steer_angle', Float32, queue_size=1)
+    pub_steering = rospy.Publisher('auto_steer_angle_lane', Float32, queue_size=1)
     detect_and_publish(opt, pub_mask, pub_steering)
     rospy.loginfo("[INFO] bev_lane_thinning_node 종료, spin() 호출")
     rospy.spin()

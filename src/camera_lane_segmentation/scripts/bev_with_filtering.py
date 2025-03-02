@@ -193,8 +193,8 @@ def final_filter(bev_mask):
     4) line_fit_filter(직선 형태 + 수직 방향만 유지)
     """
     f1 = morph_open(bev_mask, ksize=3)
-    f2 = morph_close(f1, ksize=8)
-    f3 = remove_small_components(f2, min_size=300)
+    # f2 = morph_close(f1, ksize=8)
+    f3 = remove_small_components(f1, min_size=300)
     f4 = keep_top2_components(f3, min_area=50)
 
     # 추가: line_fit_filter
@@ -225,7 +225,7 @@ def make_parser():
                         default='/home/highsky/yolopv2.pt',
                         help='model.pt path(s)')
     parser.add_argument('--source', type=str,
-                        default='/home/highsky/Videos/Webcam/차선우회전영상.mp4',#'0'
+                        default='0',#'/home/highsky/Videos/Webcam/차선직진영상.mp4'
                         help='source: 0(webcam) or path to video/image')
     parser.add_argument('--img-size', type=int, default=640,
                         help='YOLO 추론 해상도')
@@ -233,13 +233,13 @@ def make_parser():
                         help='cuda device: 0 or cpu')
     parser.add_argument('--lane-thres', type=float, default=0.5,
                         help='Threshold for lane segmentation (0.0~1.0)')
-    parser.add_argument('--nosave', action='store_false',
+    parser.add_argument('--nosave', action='store_true',
                         help='if true => do NOT save images/videos')
     parser.add_argument('--project', default='runs/detect',
                         help='save results to project/name')
     parser.add_argument('--name', default='exp',
                         help='save results to project/name')
-    parser.add_argument('--exist-ok', action='store_false',
+    parser.add_argument('--exist-ok', action='store_true',
                         help='existing project/name ok, do not increment')
     parser.add_argument('--frame-skip', type=int, default=0,
                         help='Skip N frames (0 for no skip)')

@@ -26,7 +26,7 @@ def make_parser():
                         default='/home/highsky/yolopv2.pt',
                         help='model.pt path(s)')
     parser.add_argument('--source', type=str,
-                        default='0',
+                        default='2',
                         help='source: 0(webcam) or path to video/image')
     parser.add_argument('--img-size', type=int, default=640,
                         help='inference size (pixels)')

@@ -330,7 +330,7 @@ class LoadCamera:
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
         self.cap.set(cv2.CAP_PROP_FPS, 30)
-        self.cap.set(cv2.CAP_PROP_AUTOFOCUS, 0)  # AUTOFOCUS 끄기
+        self.cap.set(cv2.CAP_PROP_AUTOFOCUS, 1)  # AUTOFOCUS 끄기
 
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -480,12 +480,47 @@ def driving_area_mask(seg=None):
     da_seg_mask = da_seg_mask.int().squeeze().cpu().numpy()
     return da_seg_mask
 
-def lane_line_mask(ll=None, threshold=0.5):
-    ll_predict = ll[:, :, 12:372, :]
-    ll_seg_mask = F.interpolate(ll_predict, scale_factor=2, mode='bilinear')
-    ll_seg_mask = (ll_seg_mask > threshold).int().squeeze(1)
-    ll_seg_mask = ll_seg_mask.squeeze().cpu().numpy()
-    return ll_seg_mask
+def lane_line_mask(ll=None, threshold=0.5, method='otsu'):
+    """
+    차선 세그멘테이션 결과로부터 이진 마스크를 생성합니다.
+    
+    Parameters:
+        ll: torch.Tensor
+            네트워크의 차선 세그멘테이션 출력 (배치, 채널, 높이, 너비)
+        threshold: float
+            고정 임계값 방식 사용 시 적용할 임계값 (0~1 사이)
+        method: str, 선택 사항
+            'fixed'   : 고정 임계값 방식 (기본값)
+            'otsu'    : Otsu thresholding 방식
+             
+    Returns:
+        binary_mask: numpy.ndarray
+            0과 255로 구성된 이진 마스크
+    """
+    # (1) 관심 영역(crop) 선택 및 해상도 보정
+    ll_predict = ll[:, :, 12:372, :]  # 원래 코드와 동일
+    ll_seg_map = F.interpolate(ll_predict, scale_factor=2, mode='bilinear')
+    ll_seg_map = ll_seg_map.squeeze(1)  # shape: (B, H, W)
+    
+    # 배치 사이즈가 1이라고 가정하고 첫 번째 결과 사용
+    ll_seg_map = ll_seg_map[0]  # shape: (H, W)
+    # tensor → numpy (GPU tensor인 경우 .cpu() 필요)
+    ll_seg_map = ll_seg_map.cpu().numpy()
+    
+    # guided filter 적용: 먼저 0~255 범위의 8비트 이미지로 변환
+    ll_seg_map_8u = (ll_seg_map * 255).astype(np.uint8)
+    # guided filter 파라미터: radius와 eps는 데이터에 따라 튜닝 필요
+    guided = cv2.ximgproc.guidedFilter(guide=ll_seg_map_8u, src=ll_seg_map_8u, radius=4, eps=1e-1)
+    
+    if method == 'fixed':
+        binary_mask = (guided > threshold * 255).astype(np.uint8) * 255
+    elif method == 'otsu':
+        ret, binary_mask = cv2.threshold(guided, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    else:
+        raise ValueError("Invalid method for binarization. Choose 'fixed' or 'otsu'.")
+    
+    return binary_mask
+
 
 def apply_clahe(image):
     """

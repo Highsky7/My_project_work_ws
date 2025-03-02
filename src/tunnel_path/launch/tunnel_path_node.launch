@@ -1,0 +1,7 @@
+<node pkg="your_package" type="tunnel_path_follower.py" name="tunnel_path_node" output="screen" >
+    <param name="use_simulation" value="true" />
+    <param name="wheelbase" value="0.33" />                <!-- example wheelbase -->
+    <param name="front_angle_range" value="140.0" />
+    <param name="bubble_radius" value="0.5" />
+    <param name="publish_path" value="true" />
+</node>

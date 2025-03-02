@@ -209,6 +209,7 @@ def final_filter(bev_mask):
     3) keep_top2_components
     4) line_fit_filter(직선 형태 + 수직 방향만 유지)
     """
+   
     f1 = morph_open(bev_mask, ksize=3)
     f2 = morph_close(f1, ksize=8)
     f3 = remove_small_components(f2, min_size=300)
@@ -242,7 +243,7 @@ def make_parser():
                         default='/home/highsky/yolopv2.pt',
                         help='model.pt path(s)')
     parser.add_argument('--source', type=str,
-                        default='/home/highsky/Videos/Webcam/차선우회전영상.mp4',#'0'
+                        default='2',#'0'
                         help='source: 0(webcam) or path to video/image')
     parser.add_argument('--img-size', type=int, default=640,
                         help='YOLO 추론 해상도')
@@ -250,18 +251,18 @@ def make_parser():
                         help='cuda device: 0 or cpu')
     parser.add_argument('--lane-thres', type=float, default=0.5,
                         help='Threshold for lane segmentation (0.0~1.0)')
-    parser.add_argument('--nosave', action='store_false',
+    parser.add_argument('--nosave', action='store_true',
                         help='if true => do NOT save images/videos')
     parser.add_argument('--project', default='runs/detect',
                         help='save results to project/name')
     parser.add_argument('--name', default='exp',
                         help='save results to project/name')
-    parser.add_argument('--exist-ok', action='store_false',
+    parser.add_argument('--exist-ok', action='store_true',
                         help='existing project/name ok, do not increment')
     parser.add_argument('--frame-skip', type=int, default=0,
                         help='Skip N frames (0 for no skip)')
     parser.add_argument('--param-file', type=str,
-                        default='bev_params.npz',
+                        default='/home/highsky/My_project_work_ws/bev_params.npz',
                         help='BEV 파라미터 (src_points, dst_points, warp_w, warp_h)')
     return parser
 
@@ -356,7 +357,7 @@ def detect_and_publish(opt, pub_mask):
             start_time = time.time()
 
         enhanced_im0s = apply_clahe(im0s)
-        rospy.loginfo("[INFO] 히스토그램 균일화 적용 완료")
+        # rospy.loginfo("[INFO] 히스토그램 균일화 적용 완료")
 
         net_input_img, ratio, pad = letterbox(enhanced_im0s, (imgsz, imgsz), stride=stride)
         net_input_img = net_input_img[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, HWC to CHW
@@ -377,8 +378,9 @@ def detect_and_publish(opt, pub_mask):
         inf_time.update(t2 - t1, img_t.size(0))
 
         # (C) 차선 세그멘테이션 -> 이진화
-        ll_seg_mask = lane_line_mask(ll, threshold=lane_threshold)
-        binary_mask = (ll_seg_mask > 0).astype(np.uint8) * 255
+       # (C) 차선 세그멘테이션 -> 이진화 (여기서 method를 'fixed' 또는 'otsu'로 선택할 수 있습니다)
+        binary_mask = lane_line_mask(ll, threshold=lane_threshold, method='fixed')
+
         # filtered_mask = advanced_filter_pipeline(binary_mask)
         # # 이 시점에서 binary_mask는 "원근 시점" (예: 720x1280 등) 크기
         # (D) 세선화(Thinning) + 추가 알고리즘
