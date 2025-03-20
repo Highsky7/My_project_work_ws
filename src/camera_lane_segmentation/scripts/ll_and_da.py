@@ -65,9 +65,7 @@ def make_parser():
                         default='./yolopv2.pt',
                         help='모델 가중치 파일 경로')
     parser.add_argument('--source', type=str,
-                        # default='/home/highsky/Videos/Webcam/직선.mp4',
-                        # default='0',
-                        default='/camera/color/image_raw',
+                        default='/home/highsky/Videos/Webcam/직선.mp4',
                         help='입력 소스: ROS 토픽 (예: /camera/image), 동영상 파일 경로 (예: video.mp4), 또는 카메라 ID (예: 0)')
     parser.add_argument('--img-size', type=int, default=640,
                         help='모델 입력 이미지 크기 (pixels)')
@@ -277,8 +275,8 @@ def process_frame(img, im0, model, device, half, inf_time, waste_time, nms_time,
 
     if is_ros:
         try:
-            ll_mask_colored = cv2.cvtColor(ll_seg_mask * 255, cv2.COLOR_GRAY2BGR)
-            da_mask_colored = cv2.cvtColor(da_seg_mask * 255, cv2.COLOR_GRAY2BGR)
+            ll_mask_colored = cv2.cvtColor(ll_seg_mask * 255, cv2.COLOR_GRAY2BGR) #Converting ll_seg_mask_binary mask to BGR mask to publish as a ROS topic
+            da_mask_colored = cv2.cvtColor(da_seg_mask * 255, cv2.COLOR_GRAY2BGR) #Converting ll_seg_mask_binary mask to BGR mask to publish as a ROS topic
             ll_pub.publish(bridge.cv2_to_imgmsg(ll_mask_colored, "bgr8"))
             da_pub.publish(bridge.cv2_to_imgmsg(da_mask_colored, "bgr8"))
         except CvBridgeError as e:

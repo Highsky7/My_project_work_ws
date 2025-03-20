@@ -268,7 +268,7 @@ class LoadCamera:
             raise StopIteration
         self.frame += 1
 
-        img0 = cv2.resize(img0, (1280, 720), interpolation=cv2.INTER_LINEAR)
+        img0 = cv2.resize(img0, (1280, 720), interpolation=cv2.INTER_LINEAR) #Resizing img0 to 1280x720 by using linear interpolation
         img = letterbox(img0, self.img_size, stride=self.stride)[0]
         img = img[:, :, ::-1].transpose(2, 0, 1)
         img = np.ascontiguousarray(img)
@@ -337,7 +337,7 @@ class LoadImages:
             img0 = cv2.imread(path)
             assert img0 is not None, 'Image Not Found ' + path
 
-        img0 = cv2.resize(img0, (1280, 720), interpolation=cv2.INTER_LINEAR)
+        img0 = cv2.resize(img0, (1280, 720), interpolation=cv2.INTER_LINEAR) #Resizing img0 to 1280x720 by using linear interpolation
         img = letterbox(img0, self.img_size, stride=self.stride)[0]
         img = img[:, :, ::-1].transpose(2, 0, 1)
         img = np.ascontiguousarray(img)
@@ -376,7 +376,7 @@ def letterbox(img, new_shape=(640, 640), color=(114, 114, 114),
     dh /= 2
 
     if shape[::-1] != new_unpad:
-        img = cv2.resize(img, new_unpad, interpolation=cv2.INTER_LINEAR)
+        img = cv2.resize(img, new_unpad, interpolation=cv2.INTER_LINEAR) #Resizing img to size named as new_unpad by using linear interpolation
 
     top, bottom = int(round(dh - 0.1)), int(round(dh + 0.1))
     left, right = int(round(dw - 0.1)), int(round(dw + 0.1))
