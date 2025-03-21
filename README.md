@@ -17,7 +17,7 @@ Below is an overview of the repository structure, including the `camera_lane_seg
 ## Installation and Setup
 
 ### Prerequisites
-- Ubuntu 20.04(Only Tested but can be runned former or later versions)
+- Ubuntu 20.04(Only Tested but can run former or later versions)
 - ROS1 Noetic installed and properly configured
 - Necessary libraries and dependencies as specified in individual package manifests
 
@@ -26,10 +26,9 @@ Clone the repository:
 ```bash
 git clone https://github.com/Highsky7/My_project_work_ws.git
 cd My_project_work_ws
-
-Running and Testing
-How to Run the Codes
-To run the codes with ROS, use the following command:
-
+```
+### Running and Testing
+How to Run the Codes with ROS, use the following command:
 ```bash
 rosrun (package_name) ~.py
+```
