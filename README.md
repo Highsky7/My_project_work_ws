@@ -7,9 +7,6 @@ Welcome to **My_project_work_ws** – the repository for our project in **The 4t
 This project focuses on developing an advanced autonomous driving system for electric vehicles, incorporating state-of-the-art algorithms for camera vision system, tunnel detection system and decision making(judgement).  
 **Developed using ROS1 Noetic and tested on Ubuntu 20.04.**
 
-## Repository Structure
-Below is an overview of the repository structure, including the `camera_lane_segmentation` package and its subfolders: My_project_work_ws/ ├── src/ # Source code of the project (ROS packages) │ ├── camera_lane_segmentation/ # Lane segmentation package │ │ ├── scripts/ # Python scripts for lane detection, etc. │ │ └── utils/ # Utility modules and helper functions │ ├── [other_packages]/ # Other ROS packages (if any)└── README.md # Project overview and guidelines (this file)
-
 ## Features
 - **Camera Vision System** Using Open Source Model YOLOPv2 and modifying it to run in real time and to integrate with ROS
 - **Modular Design:** Clean code architecture designed for scalability and ease of maintenance.
