@@ -28,5 +28,10 @@ Clone the repository:
 ```bash
 git clone https://github.com/Highsky7/My_project_work_ws.git
 cd My_project_work_ws
- ### Run the Project
+
+## Running and testing
+
+#### How to run the codes
+Run the codes with ROS:
+```bash
 rosrun (package_name) ~.py
