@@ -1,7 +1,6 @@
 # My_project_work_ws
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Build Status](https://travis-ci.com/Highsky7/My_project_work_ws.svg?branch=main)](https://travis-ci.com/Highsky7/My_project_work_ws)
 
 ## Overview
 Welcome to **My_project_work_ws** – the repository for our project in **The 4th International University Student EV Autonomous Driving Competition**.  
