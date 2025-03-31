@@ -4,8 +4,6 @@
 
 This repository contains a collection of ROS (Robot Operating System) based projects focused on autonomous driving, computer vision, and sensor fusion. It includes algorithms for perceiving the environment using various sensors, generating driving paths, and determining control commands.
 
-**Note:** This repository serves as part of a portfolio for a German research institute application.
-
 ## 🚀 Packages Overview
 
 This workspace is organized into the following main ROS packages:
@@ -21,12 +19,12 @@ This workspace is organized into the following main ROS packages:
     * **Key Features:** Checking lane detection status, selecting steering angle based on priority, publishing unified path messages.
     * 
 
-3.  **`wall_detection`**
+3.  **`wall_detection(incomplete)`**
     * **Goal:** To **detect surrounding walls** using LiDAR point cloud data.
     * **Core Technologies:** PCL (Point Cloud Library), RANSAC plane segmentation.
     * **Key Features:** Filtering points within specific distance/area ranges, detecting vertical planes (walls).
 
-4.  **`tunnel_path`**
+4.  **`tunnel_path(incomplete)`**
     * **Goal:** To **recognize tunnel environments** based on LiDAR scan data, generate a **central path** within the tunnel, and **calculate the steering angle**.
     * **Core Technologies:** LaserScan data processing, Pure Pursuit.
     * **Key Features:** Analyzing left/right distances from LiDAR, detecting tunnel entry, dynamic path generation, and steering control.
