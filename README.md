@@ -141,5 +141,15 @@ rosrun judgement judgement.py
 ```bash
 rosrun tunnel_path tunnel_path_follower.py
 ```
+
+---
+
+## 👤 Contributor
+
+* **Highsky7** ([https://github.com/Highsky7](https://github.com/Highsky7))
+
+---
+
 ## 📄 License
-### "All rights reserved".
+
+Copyright (c) 2025 Highsky7. All rights reserved.
