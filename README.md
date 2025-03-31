@@ -95,7 +95,8 @@ This package is the core focus of the repository, emphasizing camera-based lane 
 
 ### Visualization Examples
 
-*Soon will be added*
+**Experimental Pseudo Lidar Result (GIF):**
+![Experimental Pseudo Lidar Result](assets/pseudo_lidar.gif)
 ---
 
 ## 🛠️ Setup & Usage
