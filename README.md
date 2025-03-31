@@ -124,7 +124,7 @@ source devel/setup.bash
 ---
 
 ## 🏃‍♂ Run
-# 1. (If needed) Run the BEV parameter setup utility first:
+### 1. (If needed) Run the BEV parameter setup utility first:
 ```bash
 rosrun camera_lane_segmentation bev_utils.py --source 0 --out ~/My_project_work_ws/bev_params.npz
 ```
