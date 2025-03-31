@@ -128,18 +128,18 @@ source devel/setup.bash
 ```bash
 rosrun camera_lane_segmentation bev_utils.py --source 0 --out ~/My_project_work_ws/bev_params.npz
 ```
-# 2. Run the main lane judgment node (using webcam device 0):
-# Replace paths with your actual parameter and weights file locations
+### 2. Run the main lane judgment node (using webcam device 0):
+#### Replace paths with your actual parameter and weights file locations
 ```bash
 rosrun camera_lane_segmentation lane_judge.py --source 0 --param-file ~/My_project_work_ws/bev_params.npz --weights ~/yolopv2.pt
 ```
-# 3. Running the decision making node:
+### 3. Running the decision making node:
 ```bash
 rosrun judgement judgement.py
 ```
-# 4. Running the tunnel path generation node(incomplete)
+### 4. Running the tunnel path generation node(incomplete)
 ```bash
 rosrun tunnel_path tunnel_path_follower.py
 ```
-📄 License
-"All rights reserved".
+## 📄 License
+## "All rights reserved".
