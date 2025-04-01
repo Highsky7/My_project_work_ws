@@ -55,23 +55,10 @@ This package is the core focus of the repository, emphasizing camera-based lane 
 #### Main Executable Scripts (`scripts/`)
 
 * `Ekfsmooth_pure_pursuit_onoff.py`: Implements lane keeping using EKF for polynomial coefficient smoothing and Pure Pursuit steering, featuring an activation toggle based on detection confidence.
-* `bev_line_thinning_node.py`: Performs BEV transformation first, then runs YOLOPv2 inference and thinning on the transformed BEV image.
-* `bev_with_filtering.py`: Applies BEV transformation and various filtering techniques (morphology, connected components, line fitting) to the lane mask.
-* `bev_with_superior_filtering.py`: An enhanced version potentially using CLAHE or more advanced filters, possibly with asynchronous processing for better performance.
 * `bev_with_superior_filtering_withoutdelay.py`: Similar to the above, but optimized to minimize processing delay.
-* `binary_mask_with_thinning.py`: Generates a basic binary lane mask from YOLOPv2 output and applies thinning; publishes and visualizes results.
-* `filtering_with_thinning.py`: Combines filtering techniques (morphology, line fitting) with thinning applied to the original (non-BEV) lane mask.
-* `kfsmooth_pure_pursuit.py`: Implements lane keeping using a standard Kalman Filter (KF) for smoothing and Pure Pursuit for steering.
-* `kfsmooth_pure_pursuit_onoff.py`: Similar to the KF version but includes an activation toggle based on detection status.
-* `lane_detection.py`: Likely an earlier/simpler script focusing solely on lane detection (e.g., YOLOPv2 inference and basic mask extraction).
-* `lane_judge.py`: Core node integrating detection status, EKF smoothing, and Pure Pursuit steering calculation; publishes final results.
 * `lane_judge_path.py`: An extension or alternative focusing on publishing the final smoothed lane path as a `nav_msgs/Path` message.
-* `lane_line_mask_checking.py`: Utility/debugging script for visualizing and verifying the quality of the generated lane line mask.
-* `lane_mask_with_path.py`: Focuses on generating the lane mask and overlaying the calculated path (likely from polynomial fitting) for visualization.
 * `ll_and_da.py`: Combines Lane Line (LL) detection and Drivable Area (DA) segmentation outputs from the YOLOPv2 model.
-* `pseudo_lidar.py`: Contains the main `DepthEstimator` class using the MiDaS model for depth estimation from images.
 * `pseudo_lidar_IPM_bev.py`: Integrates IPM (BEV) based lane detection with MiDaS depth estimation to generate a 3D path and corresponding steering angle.
-* `thinning_result_checking.py`: Utility/debugging script specifically for visualizing and verifying the results of the thinning algorithm.
 
 #### Utility Scripts (`scripts/utils/`)
 
