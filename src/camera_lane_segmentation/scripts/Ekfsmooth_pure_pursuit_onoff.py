@@ -261,7 +261,8 @@ def make_parser():
                         default='/home/highsky/yolopv2.pt',
                         help='model.pt 경로')
     parser.add_argument('--source', type=str,
-                        default='/home/highsky/Videos/Webcam/우회전.mp4',# 0
+                        default='2',
+                        # default='/home/highsky/Videos/Webcam/우회전.mp4',
                         help='source: 0(webcam) 또는 영상/이미지 파일 경로')
     parser.add_argument('--img-size', type=int, default=640,
                         help='YOLO 추론 해상도')
