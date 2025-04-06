@@ -6,11 +6,12 @@ This repository contains a collection of ROS (Robot Operating System) based proj
 
 ## 🎞️ Result Visualization
 
-* **Experimental Pseudo Lidar Result (GIF):**
-![Experimental Pseudo Lidar Result](assets/pseudo_lidar.gif)
-
-* **Judgement Package Result (GIF):**
-![Judgement Package Result](assets/judgement_result.gif)
+| Experimental Pseudo Lidar Result | Judgement Package Result |
+| :------------------------------: | :--------------------------: |
+| ![Experimental Pseudo Lidar Result](assets/pseudo_lidar.gif) | ![Judgement Package Result](assets/judgement_result.gif) |
+| *(선택사항) 첫 번째 GIF 설명* | *(선택사항) 두 번째 GIF 설명* |
+| **(새로운 GIF 추가 시)** ![New GIF 1](assets/new_gif_1.gif) | **(새로운 GIF 추가 시)** ![New GIF 2](assets/new_gif_2.gif) |
+| *(선택사항) 세 번째 GIF 설명* | *(선택사항) 네 번째 GIF 설명* |
 
 ## 🚀 Packages Overview
 
