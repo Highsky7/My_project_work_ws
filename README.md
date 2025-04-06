@@ -45,13 +45,6 @@ This workspace is organized into the following main ROS packages:
 
 This package is the core focus of the repository, emphasizing camera-based lane detection and driving control techniques.
 
-### Visualization Examples
-
-* **Experimental Pseudo Lidar Result (GIF):**
-![Experimental Pseudo Lidar Result](assets/pseudo_lidar.gif)
-
-* **
-
 ### Goal
 
 * Reliably detect lane lines from camera images under various lighting and road conditions.
