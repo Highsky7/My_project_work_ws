@@ -11,7 +11,6 @@ This repository contains a collection of ROS (Robot Operating System) based proj
 |  ![Lane Segment & ROS Path Result](assets/lane_segment_ROS_path_result.gif) | ![Ekf Purepursuit Result ](assets/Ekf_purepursuit_result.gif) |
 |  Implements lane keeping using EKF for polynomial coefficient smoothing and Pure Pursuit steering, featuring an activation toggle based on detection confidence. | An extension or alternative focusing on publishing the final smoothed lane path as a `nav_msgs/Path` message. |
 | Experimental Pseudo Lidar Result | Judgement Package Result |
-| :------------------------------: | :--------------------------: |
 | ![Experimental Pseudo Lidar Result](assets/pseudo_lidar.gif) | ![Judgement Package Result](assets/judgement_result.gif) |
 | Integrates IPM (BEV) based lane detection with MiDaS depth estimation to generate a 3D path and corresponding steering angle. | Return the steering angle and boolean dynamic obstacle message to make car steer or stop according to the environment |
 
