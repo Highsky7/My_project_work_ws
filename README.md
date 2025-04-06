@@ -4,6 +4,14 @@
 
 This repository contains a collection of ROS (Robot Operating System) based projects focused on autonomous driving, computer vision, and sensor fusion. It includes algorithms for perceiving the environment using various sensors, generating driving paths, and determining control commands.
 
+## 🎞️ Result Visualization
+
+* **Experimental Pseudo Lidar Result (GIF):**
+![Experimental Pseudo Lidar Result](assets/pseudo_lidar.gif)
+
+* **Judgement Package Result (GIF):**
+![Judgement Package Result](assets/judgement_result.gif)
+
 ## 🚀 Packages Overview
 
 This workspace is organized into the following main ROS packages:
@@ -34,6 +42,13 @@ This workspace is organized into the following main ROS packages:
 ## ⭐ `camera_lane_segmentation` Details
 
 This package is the core focus of the repository, emphasizing camera-based lane detection and driving control techniques.
+
+### Visualization Examples
+
+* **Experimental Pseudo Lidar Result (GIF):**
+![Experimental Pseudo Lidar Result](assets/pseudo_lidar.gif)
+
+* **
 
 ### Goal
 
@@ -79,11 +94,6 @@ This package is the core focus of the repository, emphasizing camera-based lane 
 * `auto_steer_angle_lane` (std_msgs/Float32): Calculated steering angle (degrees).
 * `lane_detection_status` (std_msgs/Bool): Boolean status indicating whether lanes are currently detected.
 * `lane_path` (nav_msgs/Path): Generated driving path relative to the vehicle's coordinate frame.
-
-### Visualization Examples
-
-* **Experimental Pseudo Lidar Result (GIF):**
-![Experimental Pseudo Lidar Result](assets/pseudo_lidar.gif)
 
 ---
 
